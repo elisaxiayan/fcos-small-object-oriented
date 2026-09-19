@@ -1,0 +1,148 @@
+    1  # 学术加速
+    2  source /etc/network_turbo
+    3  # 1. 创建新环境（名字叫fcos）
+    4  conda create -n fcos python=3.8 -y
+    5  # 2. 激活环境
+    6  conda activate fcos
+    7  # 3. 验证Python版本
+    8  python --version
+    9  # 应该显示：Python 3.8.x
+   10  # 安装PyTorch 1.11.0（和你镜像匹配）
+   11  pip install torch==1.11.0+cu113 torchvision==0.12.0+cu113 --extra-index-url https://download.pytorch.org/whl/cu113
+   12  python -c "import torch; print('PyTorch版本:', torch.__version__)"
+   13  python -c "import torch; print('CUDA可用:', torch.cuda.is_available())"
+   14  python -c "import torch; print('GPU型号:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else '无GPU')"
+   15  conda init bash
+   16  source ~/.bashrc
+   17  conda activate fcos
+   18  # 应该看到命令行前面有 (fcos)
+   19  # 然后运行：
+   20  python --version
+   21  cd ~
+   22  git clone https://github.com/tianzhi0549/FCOS.git
+   23  cd FCOS
+   24  pip install ninja yacs cython matplotlib tqdm opencv-python
+   25  cd ~
+   26  git clone https://github.com/NVIDIA/apex.git
+   27  cd ~/apex
+   28  git checkout 4ef930c1c884fdca5f472ab2ce7cb9b505d26c1a
+   29  pip install -v --no-cache-dir --global-option="--cpp_ext" --global-option="--cuda_ext" ./
+   30  python -c "import torch; print(torch.__version__)"
+   31  pip install torch==1.11.0+cu113 torchvision==0.12.0+cu113 --extra-index-url https://download.pytorch.org/whl/cu113
+   32  python -c "import torch; print(torch.__version__)"
+   33  pip install -v --no-cache-dir --global-option="--cpp_ext" --global-option="--cuda_ext" ./
+   34  python -c "import apex; print('apex ok')"
+   35  sed -i 's/from torch._six import container_abcs/import collections.abc as container_abcs/' /root/apex/apex/amp/_amp_state.py
+   36  python -c "import apex; print('apex ok')"
+   37  cd ~/FCOS
+   38  python setup.py build develop
+   39  cd ~/FCOS
+   40  # 用新的头文件替换旧的
+   41  sed -i 's/#include <THC\/THC.h>/\/\/ #include <THC\/THC.h>/g' fcos_core/csrc/cuda/SigmoidFocalLoss_cuda.cu
+   42  sed -i 's/#include <THC\/THC.h>/\/\/ #include <THC\/THC.h>/g' fcos_core/csrc/cuda/deform_conv_cuda.cu
+   43  sed -i 's/#include <THC\/THC.h>/\/\/ #include <THC\/THC.h>/g' fcos_core/csrc/cuda/ROIPool_cuda.cu
+   44  sed -i 's/#include <THC\/THC.h>/\/\/ #include <THC\/THC.h>/g' fcos_core/csrc/cuda/ml_nms.cu
+   45  sed -i 's/#include <THC\/THC.h>/\/\/ #include <THC\/THC.h>/g' fcos_core/csrc/cuda/nms.cu
+   46  sed -i 's/#include <THC\/THC.h>/\/\/ #include <THC\/THC.h>/g' fcos_core/csrc/cuda/ROIAlign_cuda.cu
+   47  sed -i 's/#include <THC\/THC.h>/\/\/ #include <THC\/THC.h>/g' fcos_core/csrc/cuda/deform_pool_cuda.cu
+   48  sed -i 's/#include "cpu\/vision.h"/#include "..\/cpu\/vision.h"/g' fcos_core/csrc/cpu/ROIAlign_cpu.cpp
+   49  sed -i 's/#include "cpu\/vision.h"/#include "..\/cpu\/vision.h"/g' fcos_core/csrc/cpu/nms_cpu.cpp
+   50  rm -rf ~/FCOS/build
+   51  cd ~/FCOS
+   52  python setup.py build develop
+   53  head -5 /root/FCOS/fcos_core/csrc/cpu/ROIAlign_cpu.cpp
+   54  head -5 /root/FCOS/fcos_core/csrc/cpu/nms_cpu.cpp
+   55  head -10 /root/FCOS/fcos_core/csrc/cuda/nms.cu
+   56  # 查看所有cuda文件里还有哪些THC残留
+   57  grep -rn "THC/" /root/FCOS/fcos_core/csrc/cuda/
+   58  # 替换 THCDeviceUtils.cuh - 新版用 ATen/cuda/DeviceUtils.cuh
+   59  sed -i 's/#include <THC\/THCDeviceUtils.cuh>/#include <ATen\/cuda\/DeviceUtils.cuh>/g' /root/FCOS/fcos_core/csrc/cuda/nms.cu
+   60  sed -i 's/#include <THC\/THCDeviceUtils.cuh>/#include <ATen\/cuda\/DeviceUtils.cuh>/g' /root/FCOS/fcos_core/csrc/cuda/ml_nms.cu
+   61  # 替换其他常见的THC头文件
+   62  sed -i 's/#include <THC\/THCAtomics.cuh>/#include <ATen\/cuda\/Atomic.cuh>/g' /root/FCOS/fcos_core/csrc/cuda/*.cu
+   63  sed -i 's/#include <THC\/THCDeviceTensor.cuh>/\/\/ removed THCDeviceTensor/g' /root/FCOS/fcos_core/csrc/cuda/*.cu
+   64  grep -rn "THC/" /root/FCOS/fcos_core/csrc/
+   65  sed -i 's/#include <THC\/THCDeviceUtils.cuh>/#include <ATen\/cuda\/DeviceUtils.cuh>/g' /root/FCOS/fcos_core/csrc/cuda/ROIAlign_cuda.cu /root/FCOS/fcos_core/csrc/cuda/ROIPool_cuda.cu /root/FCOS/fcos_core/csrc/cuda/SigmoidFocalLoss_cuda.cu /root/FCOS/fcos_core/csrc/cuda/deform_conv_cuda.cu /root/FCOS/fcos_core/csrc/cuda/deform_pool_cuda.cu
+   66  grep -rn "THC/" /root/FCOS/fcos_core/csrc/
+   67  rm -rf /root/FCOS/build && cd /root/FCOS && python setup.py build develop 2>&1 | tail -30
+   68  cd /root/FCOS && python setup.py build develop 2>&1 | grep -E "error:|Error" | head -20
+   69  grep -n "THCCeilDiv\|THCudaCheck" /root/FCOS/fcos_core/csrc/cuda/ROIPool_cuda.cu
+   70  grep -n "THCCeilDiv\|THCudaCheck" /root/FCOS/fcos_core/csrc/cuda/ROIAlign_cuda.cu
+   71  grep -rn "THCCeilDiv\|THCudaCheck" /root/FCOS/fcos_core/csrc/cuda/
+   72  # 替换所有cuda文件里的 THCudaCheck
+   73  sed -i 's/THCudaCheck(\(.*\))/AT_CUDA_CHECK(\1)/g' /root/FCOS/fcos_core/csrc/cuda/ROIPool_cuda.cu
+   74  sed -i 's/THCudaCheck(\(.*\))/AT_CUDA_CHECK(\1)/g' /root/FCOS/fcos_core/csrc/cuda/ROIAlign_cuda.cu
+   75  sed -i 's/THCudaCheck(\(.*\))/AT_CUDA_CHECK(\1)/g' /root/FCOS/fcos_core/csrc/cuda/SigmoidFocalLoss_cuda.cu
+   76  sed -i 's/THCudaCheck(\(.*\))/AT_CUDA_CHECK(\1)/g' /root/FCOS/fcos_core/csrc/cuda/ml_nms.cu
+   77  sed -i 's/THCudaCheck(\(.*\))/AT_CUDA_CHECK(\1)/g' /root/FCOS/fcos_core/csrc/cuda/nms.cu
+   78  # 替换 THCCeilDiv(a, b) -> ((a + b - 1) / b)
+   79  sed -i 's/THCCeilDiv(\([^,]*\), \([^)]*\))/((\1 + \2 - 1) \/ \2)/g' /root/FCOS/fcos_core/csrc/cuda/ROIPool_cuda.cu
+   80  sed -i 's/THCCeilDiv(\([^,]*\), \([^)]*\))/((\1 + \2 - 1) \/ \2)/g' /root/FCOS/fcos_core/csrc/cuda/ROIAlign_cuda.cu
+   81  sed -i 's/THCCeilDiv(\([^,]*\), \([^)]*\))/((\1 + \2 - 1) \/ \2)/g' /root/FCOS/fcos_core/csrc/cuda/SigmoidFocalLoss_cuda.cu
+   82  sed -i 's/THCCeilDiv(\([^,]*\), \([^)]*\))/((\1 + \2 - 1) \/ \2)/g' /root/FCOS/fcos_core/csrc/cuda/ml_nms.cu
+   83  sed -i 's/THCCeilDiv(\([^,]*\), \([^)]*\))/((\1 + \2 - 1) \/ \2)/g' /root/FCOS/fcos_core/csrc/cuda/nms.cu
+   84  grep -rn "THCCeilDiv\|THCudaCheck" /root/FCOS/fcos_core/csrc/cuda/
+   85  rm -rf /root/FCOS/build && cd /root/FCOS && python setup.py build develop 2>&1 | grep -E "^/root.*error:" | head -20
+   86  cat /root/FCOS/fcos_core/csrc/cuda/nms.cu
+   87  cat /root/FCOS/fcos_core/csrc/cuda/ml_nms.cu
+   88  cat /root/FCOS/fcos_core/csrc/cuda/deform_conv_cuda.cu | head -100
+   89  cat /root/FCOS/fcos_core/csrc/cuda/deform_pool_cuda.cu | head -60
+   90  # 修复 nms.cu - 替换THCState/THCudaMalloc/THCudaFree
+   91  sed -i 's/THCState \*state = at::globalContext().lazyInitCUDA();//g' /root/FCOS/fcos_core/csrc/cuda/nms.cu
+   92  sed -i 's/mask_dev = (unsigned long long\*) THCudaMalloc(state, \(.*\));/AT_CUDA_CHECK(cudaMalloc(\&mask_dev, \1));/g' /root/FCOS/fcos_core/csrc/cuda/nms.cu
+   93  sed -i 's/THCudaFree(state, mask_dev)/cudaFree(mask_dev)/g' /root/FCOS/fcos_core/csrc/cuda/nms.cu
+   94  sed -i 's/THCudaCheck(cudaMemcpy/AT_CUDA_CHECK(cudaMemcpy/g' /root/FCOS/fcos_core/csrc/cuda/nms.cu
+   95  sed -i 's/AT_ASSERTM(boxes\.type()\.is_cuda()/AT_ASSERTM(boxes.is_cuda()/g' /root/FCOS/fcos_core/csrc/cuda/nms.cu
+   96  sed -i 's/boxes_sorted\.data<scalar_t>()/boxes_sorted.data_ptr<scalar_t>()/g' /root/FCOS/fcos_core/csrc/cuda/nms.cu
+   97  sed -i 's/keep\.data<int64_t>()/keep.data_ptr<int64_t>()/g' /root/FCOS/fcos_core/csrc/cuda/nms.cu
+   98  # 修复 ml_nms.cu - 同样的问题
+   99  sed -i 's/THCState \*state = at::globalContext().lazyInitCUDA();//g' /root/FCOS/fcos_core/csrc/cuda/ml_nms.cu
+  100  sed -i 's/mask_dev = (unsigned long long\*) THCudaMalloc(state, \(.*\));/AT_CUDA_CHECK(cudaMalloc(\&mask_dev, \1));/g' /root/FCOS/fcos_core/csrc/cuda/ml_nms.cu
+  101  sed -i 's/THCudaFree(state, mask_dev)/cudaFree(mask_dev)/g' /root/FCOS/fcos_core/csrc/cuda/ml_nms.cu
+  102  sed -i 's/THCudaCheck(cudaMemcpy/AT_CUDA_CHECK(cudaMemcpy/g' /root/FCOS/fcos_core/csrc/cuda/ml_nms.cu
+  103  sed -i 's/AT_ASSERTM(boxes\.type()\.is_cuda()/AT_ASSERTM(boxes.is_cuda()/g' /root/FCOS/fcos_core/csrc/cuda/ml_nms.cu
+  104  sed -i 's/boxes_sorted\.data<scalar_t>()/boxes_sorted.data_ptr<scalar_t>()/g' /root/FCOS/fcos_core/csrc/cuda/ml_nms.cu
+  105  sed -i 's/keep\.data<int64_t>()/keep.data_ptr<int64_t>()/g' /root/FCOS/fcos_core/csrc/cuda/ml_nms.cu
+  106  # 修复 deform_conv_cuda.cu 和 deform_pool_cuda.cu - AT_CHECK -> TORCH_CHECK
+  107  sed -i 's/AT_CHECK(/TORCH_CHECK(/g' /root/FCOS/fcos_core/csrc/cuda/deform_conv_cuda.cu
+  108  sed -i 's/AT_CHECK(/TORCH_CHECK(/g' /root/FCOS/fcos_core/csrc/cuda/deform_pool_cuda.cu
+  109  grep -rn "THCState\|THCudaMalloc\|THCudaFree\|AT_CHECK\b" /root/FCOS/fcos_core/csrc/cuda/
+  110  rm -rf /root/FCOS/build && cd /root/FCOS && python setup.py build develop 2>&1 | grep -E "^/root.*error:" | head -20
+  111  cd /root/FCOS && python -c "import fcos_core; print('fcos_core imported successfully')"
+  112  ls /root/FCOS/
+  113  cat /root/FCOS/README.md | head -100
+  114  cd /root/FCOS
+  115  wget https://huggingface.co/tianzhi/FCOS/resolve/main/FCOS_imprv_R_50_FPN_1x.pth?download=true -O FCOS_imprv_R_50_FPN_1x.pth
+  116  python demo/fcos_demo.py
+  117  grep -rn "torch._six" /root/FCOS/fcos_core/
+  118  # PY3在新版PyTorch里永远是True，直接替换
+  119  sed -i 's/if torch._six.PY3:/if True:/g' /root/FCOS/fcos_core/utils/imports.py
+  120  sed -i 's/torch._six.PY3/True/g' /root/FCOS/fcos_core/utils/imports.py
+  121  # 顺便修复其他文件里可能有的同样问题
+  122  grep -rn "torch._six" /root/FCOS/fcos_core/ | grep -v ".pyc" | awk -F: '{print $1}' | sort -u | xargs -I{} sed -i 's/torch\._six\.PY3/True/g' {}
+  123  python demo/fcos_demo.py
+  124  # 修复 view -> reshape
+  125  sed -i 's/candidate_inds\.view(N, -1)\.sum(1)/candidate_inds.reshape(N, -1).sum(1)/g' /root/FCOS/fcos_core/modeling/rpn/fcos/inference.py
+  126  # 修复 is -1 -> == -1
+  127  sed -i 's/\.find(param) is -1/.find(param) == -1/g' /root/FCOS/fcos_core/utils/c2_model_loading.py
+  128  python demo/fcos_demo.py
+  129  sed -n '360,375p' /root/FCOS/demo/predictor.py
+  130  sed -i 's/            x, y = box\[:2\]/            x, y = int(box[0]), int(box[1])/' /root/FCOS/demo/predictor.py
+  131  python demo/fcos_demo.py
+  132  sed -i 's/plt.show()/plt.savefig("demo_result.jpg"); print("Saved to demo_result.jpg")/' /root/FCOS/demo/fcos_demo.py
+  133  # 如果用的是cv2.imshow
+  134  sed -i 's/cv2.imshow.*$/cv2.imwrite("demo_result.jpg", composite); print("Saved to demo_result.jpg")/' /root/FCOS/demo/fcos_demo.py
+  135  tail -20 /root/FCOS/demo/fcos_demo.py
+  136  python demo/fcos_demo.py
+  137  sed -i 's/cv2.imwrite("demo_result.jpg", composite); print("Saved to demo_result.jpg")/cv2.imwrite("demo_result_" + im_name, composite); print("Saved to demo_result_" + im_name)/' /root/FCOS/demo/fcos_demo.py
+  138  python demo/fcos_demo.py
+  139  head -50 /root/FCOS/demo/fcos_demo.py
+  140  ls /root/*.jpg /root/*.png 2>/dev/null
+  141  mkdir -p /root/myimages
+  142  mv/root/hehe.jpg/root/myimages/
+  143  mv /root/hehe.jpg /root/myimages/
+  144  cd /root/FCOS && python demo/fcos_demo.py --images-dir /root/myimages
+  145  # 保存所有包的版本
+  146  pip freeze > ~/autodl-tmp/fcos_requirements.txt
+  147  # 保存你输过的所有命令
+  148  history > ~/autodl-tmp/my_commands.txt
